@@ -1,28 +1,59 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8" />
-    <title>Modern VRM LipSync (MediaPipe)</title>
+    <title>VRM LipSync with UI Controls</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-        body { margin: 0; overflow: hidden; background: #222; }
-        canvas { display: block; }
-        #video { position: absolute; bottom: 10px; right: 10px; width: 200px; transform: scaleX(-1); border: 2px solid white; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: sans-serif; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #222;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #video {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 180px;
+            transform: scaleX(-1);
+            border: 2px solid #555;
+            border-radius: 8px;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: sans-serif;
+        }
+
+        /* lil-guiのカスタマイズ（任意） */
+        .lil-gui {
+            --width: 300px;
+        }
     </style>
 </head>
+
 <body>
     <div id="loading">Loading AI Models and VRM...</div>
     <video id="video" autoplay playsinline></video>
 
-    <!-- Import Maps for Modern JS -->
     <script type="importmap">
       {
         "imports": {
           "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
           "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
           "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js",
-          "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"
+          "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3",
+          "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19/+esm"
         }
       }
     </script>
@@ -32,8 +63,9 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
         import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+        import GUI from 'lil-gui';
 
-        // --- 設定 ---
+        // --- 設定・状態管理 ---
         const vrmUrl = 'Black01.vrm';
 
         let currentVrm;
@@ -41,10 +73,25 @@
         let video;
         const clock = new THREE.Clock();
 
+        // UI用パラメータ
+        const settings = {
+            posX: 0,
+            posY: 0,
+            posZ: 0,
+            scale: 1.0,
+            rotateY: 0,
+            reset: () => {
+                settings.posX = 0; settings.posY = 0; settings.posZ = 0;
+                settings.scale = 1.0; settings.rotateY = 0;
+                updateModel();
+                gui.controllers.forEach(c => c.updateDisplay());
+            }
+        };
+
         // --- Three.js セットアップ ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 20);
-        camera.position.set(0, 1.4, 1.0);
+        camera.position.set(0, 1.4, 1.2); // カメラ位置を少し調整
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -56,7 +103,32 @@
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-        // --- MediaPipe Face Landmarker 初期化 ---
+        // グリッドヘルパー（位置確認用）
+        const gridHelper = new THREE.GridHelper(10, 10);
+        scene.add(gridHelper);
+
+        // --- UI (lil-gui) の設定 ---
+        const gui = new GUI({ title: 'VRM Controller' });
+        const posFolder = gui.addFolder('Position (位置)');
+        posFolder.add(settings, 'posX', -2, 2, 0.01).name('X (左右)').onChange(updateModel);
+        posFolder.add(settings, 'posY', -2, 2, 0.01).name('Y (上下)').onChange(updateModel);
+        posFolder.add(settings, 'posZ', -2, 2, 0.01).name('Z (前後)').onChange(updateModel);
+
+        const scaleFolder = gui.addFolder('Transform (変形)');
+        scaleFolder.add(settings, 'scale', 0.1, 3, 0.01).name('Scale (拡大率)').onChange(updateModel);
+        scaleFolder.add(settings, 'rotateY', -Math.PI, Math.PI, 0.01).name('Rotation (回転)').onChange(updateModel);
+
+        gui.add(settings, 'reset').name('Reset Settings');
+
+        function updateModel() {
+            if (currentVrm) {
+                currentVrm.scene.position.set(settings.posX, settings.posY, settings.posZ);
+                currentVrm.scene.scale.setScalar(settings.scale);
+                currentVrm.scene.rotation.y = settings.rotateY;
+            }
+        }
+
+        // --- MediaPipe Face Landmarker ---
         async function setupFaceTracking() {
             const filesetResolver = await FilesetResolver.forVisionTasks(
                 "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
@@ -70,14 +142,16 @@
                 runningMode: "VIDEO",
                 numFaces: 1
             });
-            
+
             video = document.getElementById("video");
             const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
             video.srcObject = stream;
-            video.addEventListener("loadeddata", predictWebcam);
+            video.addEventListener("loadeddata", () => {
+                predictWebcam();
+            });
         }
 
-        // --- VRM モデル読み込み ---
+        // --- VRM 読み込み ---
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMLoaderPlugin(parser));
         loader.load(
@@ -86,13 +160,16 @@
                 const vrm = gltf.userData.vrm;
                 currentVrm = vrm;
                 scene.add(vrm.scene);
-                VRMUtils.rotateVRM0(vrm); // VRM0.0の場合の補正
+                VRMUtils.rotateVRM0(vrm);
+
+                // 初期の向きを調整
+                updateModel();
+
                 document.getElementById('loading').style.display = 'none';
-                console.log("VRM Loaded");
             }
         );
 
-        // --- メインループ ---
+        // --- 推論ループ ---
         let lastVideoTime = -1;
         async function predictWebcam() {
             if (lastVideoTime !== video.currentTime) {
@@ -107,7 +184,7 @@
             requestAnimationFrame(predictWebcam);
         }
 
-        // --- 顔の動きをVRMに適用 ---
+        // --- 顔の動き適用 ---
         function applyFaceResults(blendshapes) {
             if (!currentVrm) return;
 
@@ -118,19 +195,20 @@
 
             const expressionManager = currentVrm.expressionManager;
 
-            // リップシンク (MediaPipeの顎の開きをVRMの'aa'にマッピング)
-            // jawOpen, mouthFunnel, mouthPucker 等を組み合わせて精度を上げられます
-            expressionManager.setValue('aa', categories['jawOpen'] * 1.2);
-            expressionManager.setValue('ih', categories['mouthSmileLeft'] * 0.5); // 少し口角を上げる
+            // リップシンク: jawOpen(口の開き)をAAに適用
+            // 0.2 以下の微小な動きを無視して震えを抑制
+            const jawOpen = categories['jawOpen'];
+            expressionManager.setValue('aa', jawOpen > 0.1 ? jawOpen * 1.5 : 0);
 
             // まばたき
             expressionManager.setValue('blinkLeft', categories['eyeBlinkLeft']);
             expressionManager.setValue('blinkRight', categories['eyeBlinkRight']);
 
-            // 首の回転 (簡易実装: 目などの位置から計算も可能ですが、ここでは省略)
-            // 本格的には result.faceLandmarks から回転行列を計算します
+            // 口角（少し笑う）
+            expressionManager.setValue('happy', categories['mouthSmileLeft'] * 0.5);
         }
 
+        // --- 描画ループ ---
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
@@ -150,4 +228,5 @@
         animate();
     </script>
 </body>
+
 </html>
