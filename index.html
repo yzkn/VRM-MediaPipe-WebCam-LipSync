@@ -136,6 +136,26 @@
             }
         }
 
+
+        // --- 直立姿勢 (A-Pose) の適用関数 ---
+        function applyStraightPose() {
+            if (!currentVrm) return;
+            const humanoid = currentVrm.humanoid;
+
+            // 【修正】getNormalizedBoneNode を使用
+            // これにより、モデルごとの初期姿勢の違いを吸収してポーズを適用できます
+            const leftUpperArm = humanoid.getNormalizedBoneNode('leftUpperArm');
+            const rightUpperArm = humanoid.getNormalizedBoneNode('rightUpperArm');
+
+            if (leftUpperArm) {
+                // Tポーズ(0)から腕を下ろす方向に回転
+                leftUpperArm.rotation.z = 1.3;
+            }
+            if (rightUpperArm) {
+                rightUpperArm.rotation.z = -1.3;
+            }
+        }
+
         // --- MediaPipe セットアップ ---
         async function setupFaceTracking() {
             const filesetResolver = await FilesetResolver.forVisionTasks(
@@ -171,7 +191,7 @@
                 VRMUtils.rotateVRM0(vrm);
 
                 // 2. 直立姿勢（Aポーズ）を適用
-                applyStandingPose(vrm);
+                applyStraightPose();
 
                 updateTransform();
                 document.getElementById('loading').style.display = 'none';
@@ -210,6 +230,9 @@
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             if (currentVrm) {
+                // 毎フレームポーズを更新して「直立」を維持する
+                applyStraightPose();
+
                 currentVrm.update(delta);
             }
             renderer.render(scene, camera);
