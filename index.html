@@ -42,6 +42,12 @@
     <div id="loading">VRMモデルとAIを読み込み中...</div>
     <video id="video" autoplay playsinline></video>
 
+    <!-- ファイル選択ボタンの追加 -->
+    <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
+        <input type="file" id="fileInput" accept=".vrm" style="display:none;">
+        <button onclick="document.getElementById('fileInput').click()">VRMファイルを選択</button>
+    </div>
+
     <script type="importmap">
       {
         "imports": {
@@ -64,6 +70,8 @@
         // --- 設定 ---
         const vrmUrl = 'Black01.vrm';
 
+        const fileInput = document.getElementById('fileInput');
+
         let currentVrm;
         let faceLandmarker;
         let video;
@@ -77,6 +85,41 @@
             scale: 1.0,
             rotateY: Math.PI
         };
+
+        // VRMを読み込む共通関数
+        async function loadVRM(url) {
+            // 既存のモデルがある場合は削除
+            if (currentVrm) {
+                scene.remove(currentVrm.scene);
+                // メモリ解放（必要に応じて）
+                // VRMUtils.deepDispose(currentVrm.scene);
+            }
+
+            const loader = new GLTFLoader();
+            loader.register((parser) => new VRMLoaderPlugin(parser));
+
+            const gltf = await loader.loadAsync(url);
+            const vrm = gltf.userData.vrm;
+
+            // シーンに追加
+            scene.add(vrm.scene);
+            currentVrm = vrm;
+
+            // モデルの向きを調整（既存コードに合わせる）
+            VRMUtils.rotateVRM0(currentVrm);
+            console.log("VRM Loaded:", vrm);
+        }
+
+        // ファイルが選択された時の処理
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const blob = new Blob([file], { type: "application/octet-stream" });
+            const url = URL.createObjectURL(blob);
+
+            loadVRM(url);
+        });
 
         // --- Three.js セットアップ ---
         const scene = new THREE.Scene();
@@ -159,25 +202,7 @@
         }
 
         // --- VRM 読み込み ---
-        const loader = new GLTFLoader();
-        loader.register((parser) => new VRMLoaderPlugin(parser));
-        loader.load(
-            vrmUrl,
-            (gltf) => {
-                const vrm = gltf.userData.vrm;
-                currentVrm = vrm;
-                scene.add(vrm.scene);
-
-                // 1. 正面を向かせる
-                VRMUtils.rotateVRM0(vrm);
-
-                // 2. 直立姿勢（Aポーズ）を適用
-                applyStraightPose();
-
-                updateTransform();
-                document.getElementById('loading').style.display = 'none';
-            }
-        );
+        loadVRM(vrmUrl);
 
         // --- 推論・更新ループ ---
         let lastVideoTime = -1;
