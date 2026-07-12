@@ -35,6 +35,39 @@
             font-family: sans-serif;
             font-size: 1.2rem;
         }
+
+        .controls-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        .controls-overlay h3 {
+            margin: 0 0 5px 0;
+            font-size: 14px;
+        }
+
+        .controls-group {
+            margin-bottom: 10px;
+        }
+
+        .controls-group label {
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        select,
+        input[type="file"] {
+            width: 100%;
+            font-size: 12px;
+        }
     </style>
 </head>
 
@@ -42,10 +75,40 @@
     <div id="loading">VRMモデルとAIを読み込み中...</div>
     <video id="video" autoplay playsinline></video>
 
-    <!-- ファイル選択ボタンの追加 -->
-    <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
-        <input type="file" id="fileInput" accept=".vrm" style="display:none;">
-        <button onclick="document.getElementById('fileInput').click()">VRMファイルを選択</button>
+
+    <div class="controls-overlay">
+        <h3>VRM Model</h3>
+        <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
+            <input type="file" id="fileInput" accept=".vrm" style="display:none;">
+            <button onclick="document.getElementById('fileInput').click()">VRMファイルを選択</button>
+        </div>
+        <h3>Environment</h3>
+        <div class="controls-group">
+            <label>Background</label>
+            <select id="bgSelect">
+                <option value="">(None)</option>
+                <option value="img/cyber_bg.png">Cyber
+                </option>
+                <option value="img/home_bg.png">home
+                </option>
+                <option value="img/wa_bg.png">Wa
+                </option>
+            </select>
+            <input type="file" id="bgFile" accept="image/*">
+        </div>
+        <div class="controls-group">
+            <label>Floor</label>
+            <select id="floorSelect">
+                <option value="">(None)</option>
+                <option value="img/cyber_fl.png">Cyber
+                </option>
+                <option value="img/home_fl.png">home
+                </option>
+                <option value="img/wa_fl.png">Wa
+                </option>
+            </select>
+            <input type="file" id="floorFile" accept="image/*">
+        </div>
     </div>
 
     <script type="importmap">
@@ -70,12 +133,14 @@
         // --- 設定 ---
         const vrmUrl = 'Black01.vrm';
 
-        const fileInput = document.getElementById('fileInput');
 
         let currentVrm;
         let faceLandmarker;
+        let floorMesh; // 床オブジェクトを保持する変数
         let video;
         const clock = new THREE.Clock();
+        const fileInput = document.getElementById('fileInput');
+        const textureLoader = new THREE.TextureLoader();
 
         // UI用パラメータ (初期状態で全身が見えるように調整)
         const settings = {
@@ -95,6 +160,8 @@
                 // VRMUtils.deepDispose(currentVrm.scene);
             }
 
+            setupEnvironment(scene); // 背景・床をセットアップ
+
             const loader = new GLTFLoader();
             loader.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -110,7 +177,7 @@
             console.log("VRM Loaded:", vrm);
         }
 
-        // ファイルが選択された時の処理
+        // VRMファイルが選択された時の処理
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
@@ -119,6 +186,62 @@
             const url = URL.createObjectURL(blob);
 
             loadVRM(url);
+        });
+
+        // --- シーンセットアップ関数内に床を追加 ---
+        // (既存の init 関数またはシーン作成箇所を想定)
+        function setupEnvironment(scene) {
+            // 床の作成
+            const geometry = new THREE.PlaneGeometry(20, 20);
+            const material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8 });
+            floorMesh = new THREE.Mesh(geometry, material);
+            floorMesh.rotation.x = -Math.PI / 2;
+            floorMesh.position.y = 0; // VRMの足元に合わせる
+            floorMesh.receiveShadow = true;
+            scene.add(floorMesh);
+
+            // 背景の初期設定（任意）
+            // scene.background = new THREE.Color(0xcccccc);
+        }
+
+        // --- 画像読み込み処理 ---
+        function updateBackground(url) {
+            if (!url) {
+                scene.background = new THREE.Color(0xcccccc);
+                return;
+            }
+            textureLoader.load(url, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                scene.background = texture;
+            });
+        }
+
+        function updateFloor(url) {
+            if (!url) {
+                floorMesh.material.map = null;
+                floorMesh.material.needsUpdate = true;
+                return;
+            }
+            textureLoader.load(url, (texture) => {
+                texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(4, 4); // 床のタイルリピート設定
+                texture.colorSpace = THREE.SRGBColorSpace;
+                floorMesh.material.map = texture;
+                floorMesh.material.needsUpdate = true;
+            });
+        }
+
+        // --- イベントリスナーの登録 ---
+        document.getElementById('bgSelect').addEventListener('change', (e) => updateBackground(e.target.value));
+        document.getElementById('floorSelect').addEventListener('change', (e) => updateFloor(e.target.value));
+
+        document.getElementById('bgFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) updateBackground(URL.createObjectURL(file));
+        });
+        document.getElementById('floorFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) updateFloor(URL.createObjectURL(file));
         });
 
         // --- Three.js セットアップ ---
