@@ -1,16 +1,43 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8" />
     <title>Full Body VRM LipSync</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-        body { margin: 0; overflow: hidden; background: #333; }
-        canvas { display: block; }
-        #video { position: absolute; bottom: 10px; right: 10px; width: 160px; transform: scaleX(-1); border: 2px solid #777; border-radius: 8px; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: sans-serif; font-size: 1.2rem; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #333;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #video {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 160px;
+            transform: scaleX(-1);
+            border: 2px solid #777;
+            border-radius: 8px;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: sans-serif;
+            font-size: 1.2rem;
+        }
     </style>
 </head>
+
 <body>
     <div id="loading">VRMモデルとAIを読み込み中...</div>
     <video id="video" autoplay playsinline></video>
@@ -35,8 +62,8 @@
         import GUI from 'lil-gui';
 
         // --- 設定 ---
-        const vrmUrl = 'https://pixiv.github.io/three-vrm/packages/three-vrm/examples/models/VRM1_Constraint_Sample.vrm';
-        
+        const vrmUrl = 'Black01.vrm';
+
         let currentVrm;
         let faceLandmarker;
         let video;
@@ -53,10 +80,10 @@
 
         // --- Three.js セットアップ ---
         const scene = new THREE.Scene();
-        
+
         // 全身を映すためにカメラ位置を調整 (高さ1.0m、距離3.2m程度)
         const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 20);
-        camera.position.set(0, 0.9, 3.2); 
+        camera.position.set(0, 0.9, 3.2);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -97,7 +124,7 @@
                 // 両腕を下ろす (Z軸の回転で調整)
                 const leftUpperArm = humanoid.getRawBoneNode('leftUpperArm');
                 const rightUpperArm = humanoid.getRawBoneNode('rightUpperArm');
-                
+
                 if (leftUpperArm) leftUpperArm.rotation.z = Math.PI / 2.5; // 約72度
                 if (rightUpperArm) rightUpperArm.rotation.z = -Math.PI / 2.5;
 
@@ -123,7 +150,7 @@
                 runningMode: "VIDEO",
                 numFaces: 1
             });
-            
+
             video = document.getElementById("video");
             const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
             video.srcObject = stream;
@@ -198,4 +225,5 @@
         animate();
     </script>
 </body>
+
 </html>
