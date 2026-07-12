@@ -117,25 +117,6 @@
             }
         }
 
-        // --- 直立姿勢（Aポーズ）を適用する関数 ---
-        function applyStandingPose(vrm) {
-            const humanoid = vrm.humanoid;
-            if (humanoid) {
-                // 両腕を下ろす (Z軸の回転で調整)
-                const leftUpperArm = humanoid.getRawBoneNode('leftUpperArm');
-                const rightUpperArm = humanoid.getRawBoneNode('rightUpperArm');
-
-                if (leftUpperArm) leftUpperArm.rotation.z = Math.PI / 2.5; // 約72度
-                if (rightUpperArm) rightUpperArm.rotation.z = -Math.PI / 2.5;
-
-                // 少し脇を締める
-                const leftShoulder = humanoid.getRawBoneNode('leftShoulder');
-                const rightShoulder = humanoid.getRawBoneNode('rightShoulder');
-                if (leftShoulder) leftShoulder.rotation.z = 0.2;
-                if (rightShoulder) rightShoulder.rotation.z = -0.2;
-            }
-        }
-
 
         // --- 直立姿勢 (A-Pose) の適用関数 ---
         function applyStraightPose() {
@@ -213,17 +194,51 @@
             requestAnimationFrame(predictWebcam);
         }
 
+
+        // 母音判別
         function applyFaceResults(blendshapes) {
             if (!currentVrm) return;
-            const categories = {};
-            blendshapes.categories.forEach(c => { categories[c.categoryName] = c.score; });
+
+            // MediaPipeのスコアを扱いやすいようにオブジェクトに変換
+            const s = {};
+            blendshapes.categories.forEach(c => { s[c.categoryName] = c.score; });
 
             const em = currentVrm.expressionManager;
-            // リップシンク
-            em.setValue('aa', categories['jawOpen'] > 0.1 ? categories['jawOpen'] * 1.3 : 0);
-            // まばたき
-            em.setValue('blinkLeft', categories['eyeBlinkLeft']);
-            em.setValue('blinkRight', categories['eyeBlinkRight']);
+
+            // --- 1. 特徴量の抽出 ---
+            const open = s['jawOpen'];                                          // 顎の開き
+            const funnel = s['mouthFunnel'];                                    // 口を丸くする（オ）
+            const pucker = s['mouthPucker'];                                    // 口を窄める（ウ）
+            const smile = (s['mouthSmileLeft'] + s['mouthSmileRight']) / 2;      // 口角の上がり
+            const stretch = (s['mouthStretchLeft'] + s['mouthStretchRight']) / 2; // 口の横引き
+
+            // --- 2. 母音判定ロジック (Heuristics) ---
+
+            // 【あ】顎が開いていて、かつ口を丸めたり窄めたりしていない
+            const aa = Math.max(0, open - funnel - pucker);
+
+            // 【い】顎の開きは抑えめで、口角が上がっている、または横に引いている
+            const ih = Math.max(0, (smile + stretch) * 0.8 - open * 0.3);
+
+            // 【う】口を強く窄めている状態
+            const uu = Math.max(0, pucker * 1.5);
+
+            // 【え】顎が開き、かつ横にも引いている（「あ」と「い」の中間）
+            const ee = Math.max(0, (open * 0.6 + stretch * 0.4) - funnel);
+
+            // 【お】顎が開き、かつ口が丸まっている状態
+            const oh = Math.max(0, funnel * 1.2);
+
+            // --- 3. VRM Expression への適用 ---
+            em.setValue('aa', aa * 1.2);
+            em.setValue('ih', ih * 1.0);
+            em.setValue('uu', uu * 1.0);
+            em.setValue('ee', ee * 1.0);
+            em.setValue('oh', oh * 1.0);
+
+            // まばたき（前回同様）
+            em.setValue('blinkLeft', s['eyeBlinkLeft']);
+            em.setValue('blinkRight', s['eyeBlinkRight']);
         }
 
         function animate() {
